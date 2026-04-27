@@ -61,8 +61,8 @@ class Camera:
             self._smooth_pos    = self.pos.copy()
             self._smooth_target = np.array([0.0, 1.0, 0.0], dtype='f4')
         elif self.mode == 'side':
-            self._smooth_pos    = np.array([9.0, 3.0, 0.0], dtype='f4')
-            self._smooth_target = np.array([0.0, 1.2, 0.0], dtype='f4')
+            self._smooth_pos    = np.array([10.5, 4.5, 0.0], dtype='f4')
+            self._smooth_target = np.array([0.0,  1.5, 0.0], dtype='f4')
         print(f"[Camera] mode → {self.mode}")
 
     def _forward(self):
@@ -94,9 +94,9 @@ class Camera:
             self._smooth_target += (shuttle_pos - self._smooth_target) * lerp_speed
 
         elif self.mode == 'side':
-            # Locked broadcast side view — inside stadium (wall at X=11), camera at X=9
-            self._smooth_pos    = np.array([9.0, 3.0, 0.0], dtype='f4')
-            self._smooth_target = np.array([0.0, 1.2, 0.0], dtype='f4')
+            # Stands extend to X≈9.2, wall at X=11 — camera at X=10.5
+            self._smooth_pos    = np.array([10.5, 4.5, 0.0], dtype='f4')
+            self._smooth_target = np.array([0.0,  1.5, 0.0], dtype='f4')
 
         # camera shake
         if shake > 0.001:

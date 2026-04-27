@@ -9,11 +9,14 @@ from objects.net import Net
 from objects.shuttlecock import Shuttlecock
 from objects.player import Player
 from objects.environment import Environment
-from objects.props import Bench, Bottle, Bag, ShuttlecockBox, Spectator
+from objects.props import Bench, Bottle, Bag, ShuttlecockBox, Spectator, Stands
 
 WIDTH, HEIGHT = 1280, 720
 FPS_TARGET    = 60
 DEBUG         = False
+
+# Base FOV; camera zoom reduces this temporarily on hit
+BASE_FOV = 45.0
 
 
 def main():
@@ -38,14 +41,15 @@ def main():
     shuttlecock = Shuttlecock(ctx, renderer)
     player1     = Player(ctx, renderer, position=np.array([0.0, 0.025, -4.0]), facing=1.0)
     player2     = Player(ctx, renderer, position=np.array([0.0, 0.025,  4.0]), facing=-1.0)
-
-    # First leg: shuttle goes toward player2 (dir=+1), send player2 to intercept
     player2.set_target(0.0, 3.2)
 
     # ── Environment ───────────────────────────────────────────────────────────
     environment = Environment(ctx, renderer)
 
-    # ── Props: benches (both sides) ───────────────────────────────────────────
+    # ── Stands (tribun bertingkat) ────────────────────────────────────────────
+    stands = Stands(ctx, renderer)
+
+    # ── Props: benches ────────────────────────────────────────────────────────
     import math
     benches = [
         Bench(ctx, renderer, (-5.5,  0.0, -2.0), angle=math.pi/2),
@@ -54,39 +58,57 @@ def main():
         Bench(ctx, renderer, ( 5.5,  0.0,  2.0), angle=-math.pi/2),
     ]
 
-    # ── Props: bottles near benches ───────────────────────────────────────────
     bottles = [
         Bottle(ctx, renderer, (-5.0, 0.0, -1.2), [0.15, 0.35, 0.85]),
         Bottle(ctx, renderer, (-5.0, 0.0,  1.2), [0.85, 0.18, 0.18]),
         Bottle(ctx, renderer, (-5.2, 0.0, -1.4), [0.15, 0.35, 0.85]),
     ]
 
-    # ── Props: sports bags ────────────────────────────────────────────────────
     bags = [
         Bag(ctx, renderer, (-5.8, 0.0, -3.0), [0.15, 0.35, 0.85], angle=0.4),
         Bag(ctx, renderer, ( 5.8, 0.0,  3.0), [0.85, 0.18, 0.18], angle=-0.4),
     ]
 
-    # ── Props: shuttlecock boxes ──────────────────────────────────────────────
     shuttle_boxes = [
         ShuttlecockBox(ctx, renderer, (-5.0, 0.0, -3.5)),
         ShuttlecockBox(ctx, renderer, ( 5.0, 0.0,  3.5)),
     ]
 
-    # ── Props: spectators ─────────────────────────────────────────────────────
-    spectators = [
-        Spectator(ctx, renderer, (-7.5, 0.0, -3.0), [0.70, 0.20, 0.20], angle= math.pi/2),
-        Spectator(ctx, renderer, (-7.5, 0.0,  0.0), [0.20, 0.55, 0.20], angle= math.pi/2),
-        Spectator(ctx, renderer, (-7.5, 0.0,  3.0), [0.80, 0.60, 0.10], angle= math.pi/2),
-        Spectator(ctx, renderer, ( 7.5, 0.0, -3.0), [0.30, 0.30, 0.75], angle=-math.pi/2),
-        Spectator(ctx, renderer, ( 7.5, 0.0,  0.0), [0.65, 0.20, 0.65], angle=-math.pi/2),
-        Spectator(ctx, renderer, ( 7.5, 0.0,  3.0), [0.20, 0.60, 0.70], angle=-math.pi/2),
+    # ── Spectators on stands (left side X≈-4.5, right side X≈4.5) ────────────
+    # Place spectators on each tier of the stands
+    SHIRT_COLORS = [
+        [0.70, 0.20, 0.20], [0.20, 0.55, 0.20], [0.80, 0.60, 0.10],
+        [0.30, 0.30, 0.75], [0.65, 0.20, 0.65], [0.20, 0.60, 0.70],
+        [0.85, 0.40, 0.10], [0.10, 0.50, 0.50], [0.60, 0.60, 0.10],
+        [0.40, 0.10, 0.60],
     ]
+    spectators = []
+    STEP_H = 0.40
+    STEP_D = 0.55
+    Z_POSITIONS = [-4.5, -1.5, 1.5, 4.5]   # 4 spectators per tier per side
+
+    for tier in range(5):
+        y = tier * STEP_H + 0.55   # sit on top of bench
+        for zi, z in enumerate(Z_POSITIONS):
+            color_idx = (tier * 4 + zi) % len(SHIRT_COLORS)
+            # Left stand: X = -7.0 - tier*STEP_D, faces +X (angle=+π/2)
+            lx = -7.0 - tier * STEP_D
+            spectators.append(Spectator(
+                ctx, renderer, (lx, y, z),
+                SHIRT_COLORS[color_idx], angle=math.pi / 2
+            ))
+            # Right stand: X = +7.0 + tier*STEP_D, faces -X (angle=-π/2)
+            rx = 7.0 + tier * STEP_D
+            spectators.append(Spectator(
+                ctx, renderer, (rx, y, z),
+                SHIRT_COLORS[(color_idx + 5) % len(SHIRT_COLORS)], angle=-math.pi / 2
+            ))
 
     clock       = pygame.time.Clock()
     slow_motion = False
     dbg_timer   = 0.0
     running     = True
+    _prev_shake = 0.0   # detect rising edge of cam_shake to trigger spectators
 
     print("[Badminton 3D]  WASD=move  Mouse=look  C=cam-mode  SPACE=slowmo  P=cam-info  ESC=quit")
 
@@ -118,6 +140,22 @@ def main():
         player2.set_shuttle(shuttlecock)
         player1.update(dt)
         player2.update(dt)
+
+        # ── Trigger spectator hit reaction on rising edge of cam_shake ────────
+        if anim.cam_shake > 0.01 and _prev_shake <= 0.01:
+            for s in spectators:
+                s.trigger_hit()
+        _prev_shake = anim.cam_shake
+
+        for s in spectators:
+            s.update(dt)
+
+        # ── Camera zoom: reduce FOV temporarily on hit ────────────────────────
+        if anim.cam_zoom > 0.0:
+            camera.proj = _perspective(BASE_FOV - anim.cam_zoom, WIDTH / HEIGHT, 0.1, 100.0)
+        else:
+            camera.proj = _perspective(BASE_FOV, WIDTH / HEIGHT, 0.1, 100.0)
+
         camera.update(dt, keys, mx, my, shuttlecock.position, shake=anim.cam_shake)
 
         dbg_timer += dt_raw
@@ -130,16 +168,16 @@ def main():
         if DEBUG:
             renderer.draw_debug(vp)
 
-        # Draw order: environment first (back), then court, then props, then players
         environment.draw(vp)
+        stands.draw(vp)
         court.draw(vp)
         net.draw(vp)
 
-        for b in benches:      b.draw(vp)
-        for b in bottles:      b.draw(vp)
-        for b in bags:         b.draw(vp)
+        for b in benches:       b.draw(vp)
+        for b in bottles:       b.draw(vp)
+        for b in bags:          b.draw(vp)
         for b in shuttle_boxes: b.draw(vp)
-        for s in spectators:   s.draw(vp)
+        for s in spectators:    s.draw(vp)
 
         shuttlecock.draw(vp)
         player1.draw(vp)
@@ -152,6 +190,18 @@ def main():
         pygame.display.flip()
 
     pygame.quit()
+
+
+def _perspective(fov_deg, aspect, near, far):
+    import numpy as np
+    f = 1.0 / np.tan(np.radians(fov_deg) / 2.0)
+    m = np.zeros((4, 4), dtype='f4')
+    m[0, 0] = f / aspect
+    m[1, 1] = f
+    m[2, 2] = (far + near) / (near - far)
+    m[2, 3] = (2.0 * far * near) / (near - far)
+    m[3, 2] = -1.0
+    return m
 
 
 if __name__ == "__main__":
