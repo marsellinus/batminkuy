@@ -17,8 +17,8 @@ def ease_out(t):
 
 
 class AnimationController:
-    HIT_DIST     = 1.5
-    HIT_DURATION = 0.38
+    HIT_DIST     = 1.8        # Larger hit zone for more natural arm extension
+    HIT_DURATION = 0.45       # Slightly longer swing for more realistic motion
 
     def __init__(self):
         self._hit_timer = [0.0, 0.0]
@@ -35,7 +35,7 @@ class AnimationController:
         if shuttlecock._waiting and dist < self.HIT_DIST and self._hit_timer[receiver_idx] <= 0.0:
             self._hit_timer[receiver_idx] = self.HIT_DURATION
             receiver.state = 'hit'
-            self.cam_shake = 0.025
+            self.cam_shake = 0.035  # Slightly more shake on hit
 
             landing_x = float(np.random.uniform(-1.5, 1.5))
             shuttlecock.launch(receiver.position[0], landing_x)
@@ -48,8 +48,8 @@ class AnimationController:
             if self._hit_timer[i] > 0.0:
                 self._hit_timer[i] -= dt
                 raw_t = 1.0 - (self._hit_timer[i] / self.HIT_DURATION)
-                blend = smoothstep(raw_t / 0.4) if raw_t < 0.4 \
-                        else smoothstep(1.0 - (raw_t - 0.4) / 0.6)
+                blend = smoothstep(raw_t / 0.35) if raw_t < 0.35 \
+                        else smoothstep(1.0 - (raw_t - 0.35) / 0.65)
                 player.set_hit_blend(blend)
                 player.state = 'hit'
             else:
@@ -57,4 +57,4 @@ class AnimationController:
                 if player.state == 'hit':
                     player.state = 'idle'
 
-        self.cam_shake = max(0.0, self.cam_shake - dt * 0.6)
+        self.cam_shake = max(0.0, self.cam_shake - dt * 0.8)
