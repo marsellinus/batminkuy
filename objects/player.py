@@ -127,7 +127,7 @@ class Player:
 
         # ── Shoulder world position (via full root transform) ─────────────────
         p = self.position
-        b_rot = lerp(0.0, 0.18 * self.facing, hb)
+        b_rot = lerp(0.0, 0.25 * self.facing, hb)  # More body rotation on hit
         root_approx = (translate(p[0], p[1], p[2])
                        @ rot_y(fa + b_rot))
         sh_world = (root_approx @ np.array([SH_X, SH_Y, 0, 1], dtype='f4'))[:3]
@@ -147,22 +147,23 @@ class Player:
         target_yaw   = np.clip(target_yaw,   -0.6,  0.6)
         target_pitch = np.clip(target_pitch, -1.3,  0.3)
 
-        # Elbow: more bent when shuttle is close
+        # Elbow: more bent when shuttle is close, MUCH more during hit
         target_elbow = lerp(0.70, 0.15, np.clip(dist / 2.5, 0.0, 1.0))
+        target_elbow = lerp(target_elbow, 0.05, hb)  # Compress arm significantly on hit
 
         # Head tracking (use predicted pos for more natural look)
         head_origin = p + np.array([0, 1.58, 0], dtype='f4')
         dh = aim_pos - head_origin
-        target_hy = float(np.arctan2(dh[0], dh[2])) * 0.25
-        target_hp = float(np.arctan2(dh[1], np.linalg.norm(dh[[0,2]]) + 1e-6)) * 0.20
+        target_hy = float(np.arctan2(dh[0], dh[2])) * 0.35  # More head turn
+        target_hp = float(np.arctan2(dh[1], np.linalg.norm(dh[[0,2]]) + 1e-6)) * 0.30  # More head up/down
 
         # Blend aim influence by hit_blend
         idle_pitch = -np.sin(self._t * 2.4) * 0.12 - 0.20
-        self._s_ra_yaw   += (lerp(0.0,          target_yaw,   hb) - self._s_ra_yaw)   * k
-        self._s_ra_pitch += (lerp(idle_pitch,   target_pitch, hb) - self._s_ra_pitch) * k
-        self._s_elbow    += (lerp(0.25,         target_elbow, hb) - self._s_elbow)    * k
-        self._s_head_yaw += (target_hy - self._s_head_yaw) * k
-        self._s_head_pit += (target_hp - self._s_head_pit) * k
+        self._s_ra_yaw   += (lerp(0.0,          target_yaw,   hb) - self._s_ra_yaw)   * k * 1.5  # Faster blend
+        self._s_ra_pitch += (lerp(idle_pitch,   target_pitch, hb) - self._s_ra_pitch) * k * 1.5  # Faster blend
+        self._s_elbow    += (lerp(0.25,         target_elbow, hb) - self._s_elbow)    * k * 2.0  # Much faster elbow
+        self._s_head_yaw += (target_hy - self._s_head_yaw) * k * 1.3
+        self._s_head_pit += (target_hp - self._s_head_pit) * k * 1.3
 
     @staticmethod
     def _arm(root, sh_x, sh_y, yaw, pitch, elbow_z):
@@ -200,7 +201,7 @@ class Player:
         leg_speed = 5.0 if self.state == 'move' else 2.4
         leg_amp   = 0.35 if self.state == 'move' else 0.18
         leg   = np.sin(t * leg_speed) * leg_amp
-        b_rot = lerp(0.0, 0.18 * self.facing, hb)
+        b_rot = lerp(0.0, 0.25 * self.facing, hb)  # More body rotation on hit
 
         root = (translate(p[0], p[1] + bob, p[2])
                 @ rot_y(fa + b_rot)

@@ -8,14 +8,18 @@ TRAIL_COLOR   = [0.98, 0.98, 0.96]
 
 P1_Z = -4.0
 P2_Z =  4.0
-ARC_H = 3.4
-TRAVEL_TIME = 1.5
-TRAIL_LEN   = 8
+ARC_H = 3.8              # Higher arc for more realistic badminton trajectory
+TRAVEL_TIME = 1.2        # Slightly faster for more dynamic rally
+TRAIL_LEN   = 12         # More trail segments for better visual
 
 
 def _ease_inout(t):
-    """Smooth start and end of each rally leg."""
-    return t * t * (3 - 2 * t)
+    """Smooth start and end of each rally leg - more realistic arc."""
+    # Slower at start (server/hitter contact), faster in middle, slow at end
+    if t < 0.5:
+        return 2 * t * t
+    else:
+        return 1 - (-2 * t * t + 2 * t)
 
 
 def _build_mesh():
@@ -67,8 +71,8 @@ class Shuttlecock:
         if not self._waiting:
             self._t += dt / TRAVEL_TIME
             # Clamp near end — wait for player to hit
-            if self._t >= 0.96:
-                self._t = 0.96
+            if self._t >= 0.95:
+                self._t = 0.95
                 self._waiting = True
 
         t_ease = _ease_inout(self._t)
@@ -76,11 +80,13 @@ class Shuttlecock:
         z_end   = P2_Z if self._dir == 1 else P1_Z
         z = z_start + (z_end - z_start) * t_ease
         x = self._start_x + (self._end_x - self._start_x) * t_ease
-        y = ARC_H * 4 * self._t * (1 - self._t) + 0.3
+        # More realistic parabolic arc (quadratic function for gravity-like drop)
+        y = ARC_H * 4 * self._t * (1 - self._t) + 0.55
         self.position = np.array([x, y, z], dtype='f4')
         if dt > 0:
             self.velocity = (self.position - self._prev_pos) / dt
-        self._spin += dt * 8.0
+        # Faster spin for more visual interest
+        self._spin += dt * 12.0
 
         self._trail.append(self.position.copy())
         if len(self._trail) > TRAIL_LEN:
@@ -95,14 +101,14 @@ class Shuttlecock:
         self.set_leg_x(start_x, end_x)
 
     def draw(self, vp):
-        # Trail: fading spheres behind shuttle
+        # Trail: fading spheres behind shuttle - more visible
         for k, pos in enumerate(self._trail):
-            alpha = (k / TRAIL_LEN) * 0.35
-            scale = 0.5 + 0.5 * (k / TRAIL_LEN)
+            alpha = (k / TRAIL_LEN) * 0.5  # Increased opacity
+            scale = 0.3 + 0.7 * (k / TRAIL_LEN)  # Smaller to larger
             m = translate(*pos) @ rot_y(self._spin * scale)
             self.renderer.draw_vao(self.trail_vao, m.astype('f4'), vp, alpha=alpha)
 
-        # Main shuttlecock — tilt in direction of travel
+        # Main shuttlecock — tilt in direction of travel with more spin
         tilt = np.pi / 5 * self._dir
         model = translate(*self.position) @ rot_y(self._spin) @ rot_x(tilt)
         self.renderer.draw_vao(self.vao, model.astype('f4'), vp)
