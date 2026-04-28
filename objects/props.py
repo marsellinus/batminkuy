@@ -176,6 +176,11 @@ class Spectator:
     def __init__(self, ctx, renderer, position, shirt_color, angle=0.0):
         v, i = _spectator_mesh(shirt_color)
         self.vao, _ = renderer.make_vao(v, i)
+        
+        # Facial features VAOs
+        self.vao_eye, _ = renderer.make_vao(*make_sphere(0.025, 3, 5, [0.05, 0.05, 0.05]))
+        self.vao_mouth, _ = renderer.make_vao(*make_box(0.08, 0.015, 0.015, [0.8, 0.2, 0.2]))
+        
         self.renderer = renderer
         self.base_pos = np.array(position, dtype='f4')
         self.angle    = angle
@@ -207,6 +212,19 @@ class Spectator:
         m = (translate(pos[0], pos[1], pos[2])
              @ rot_y(self.angle + head_rot)).astype('f4')
         self.renderer.draw_vao(self.vao, m, vp)
+        
+        # ── Draw facial features (mata dan mulut) ──
+        head_pos = translate(pos[0], pos[1] + 1.28, pos[2]) @ rot_y(self.angle + head_rot)
+        
+        # Eyes (mata)
+        eye_left  = head_pos @ translate(-0.055, 0.04, 0.14)
+        eye_right = head_pos @ translate( 0.055, 0.04, 0.14)
+        self.renderer.draw_vao(self.vao_eye, eye_left.astype('f4'), vp)
+        self.renderer.draw_vao(self.vao_eye, eye_right.astype('f4'), vp)
+        
+        # Smile (mulut senyum)
+        smile = head_pos @ translate(0, -0.04, 0.15) @ rot_x(0.25)
+        self.renderer.draw_vao(self.vao_mouth, smile.astype('f4'), vp)
 
 
 # ── Stands (tribun bertingkat) ────────────────────────────────────────────────
