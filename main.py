@@ -9,7 +9,7 @@ from objects.net import Net
 from objects.shuttlecock import Shuttlecock
 from objects.player import Player
 from objects.environment import Environment
-from objects.props import Bench, Bottle, Bag, ShuttlecockBox, Spectator, Stands
+from objects.props import Bench, Bottle, Bag, ShuttlecockBox, Spectator, Stands, Umpire
 
 WIDTH, HEIGHT = 1280, 720
 FPS_TARGET    = 60
@@ -48,6 +48,9 @@ def main():
 
     # ── Stands (tribun bertingkat) ────────────────────────────────────────────
     stands = Stands(ctx, renderer)
+
+    # ── Umpire (wasit di net) ─────────────────────────────────────────────────
+    umpire = Umpire(ctx, renderer, position=(3.5, 0.0, 0.0))
 
     # ── Props: benches ────────────────────────────────────────────────────────
     import math
@@ -170,6 +173,7 @@ def main():
 
         environment.draw(vp)
         stands.draw(vp)
+        umpire.draw(vp)
         court.draw(vp)
         net.draw(vp)
 

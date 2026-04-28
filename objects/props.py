@@ -269,3 +269,81 @@ class Stands:
     def draw(self, vp):
         self.renderer.draw_vao(self.vao_left,  self.model, vp)
         self.renderer.draw_vao(self.vao_right, self.model, vp)
+
+
+# ── Umpire (Wasit) at the net ────────────────────────────────────────────────
+def _umpire_chair_mesh():
+    """Create a high chair for the umpire to sit on."""
+    meshes = []
+    
+    # Chair seat (platform)
+    v, i = make_box(0.50, 0.08, 0.50, METAL)
+    v = v.copy(); v[:, 1] += 1.60
+    meshes.append((v, i))
+    
+    # Backrest
+    v, i = make_box(0.50, 0.50, 0.06, METAL)
+    v = v.copy(); v[:, 1] += 1.95; v[:, 2] -= 0.20
+    meshes.append((v, i))
+    
+    # 4 chair legs
+    for lx in [-0.18, 0.18]:
+        for lz in [-0.18, 0.18]:
+            v, i = make_cylinder(0.03, 1.60, 6, METAL)
+            v = v.copy(); v[:, 0] += lx; v[:, 1] += 0.80; v[:, 2] += lz
+            meshes.append((v, i))
+    
+    return combine_meshes(meshes)
+
+
+def _umpire_mesh():
+    """Create an umpire figure sitting on chair."""
+    meshes = []
+    SKIN = [0.85, 0.65, 0.45]
+    UNIFORM = [0.15, 0.15, 0.35]  # Dark blue uniform
+    
+    # Torso (sitting position)
+    v, i = make_box(0.28, 0.35, 0.16, UNIFORM)
+    v = v.copy(); v[:, 1] += 1.75
+    meshes.append((v, i))
+    
+    # Head
+    v, i = make_sphere(0.15, 5, 7, SKIN)
+    v = v.copy(); v[:, 1] += 2.15
+    meshes.append((v, i))
+    
+    # Arms (resting on armrests/body)
+    for sx in [-0.20, 0.20]:
+        v, i = make_box(0.08, 0.32, 0.08, SKIN)
+        v = v.copy(); v[:, 0] += sx; v[:, 1] += 1.68
+        meshes.append((v, i))
+    
+    # Legs (dangling)
+    for sx in [-0.08, 0.08]:
+        v, i = make_box(0.08, 0.40, 0.10, [0.15, 0.15, 0.35])
+        v = v.copy(); v[:, 0] += sx; v[:, 1] += 1.20
+        meshes.append((v, i))
+    
+    return combine_meshes(meshes)
+
+
+class Umpire:
+    """Umpire sitting on a high chair at the side of the net."""
+    def __init__(self, ctx, renderer, position=(20.5, 0.0, 0.0), angle=-np.pi/2):
+        # Chair mesh
+        v_chair, i_chair = _umpire_chair_mesh()
+        self.chair_vao, _ = renderer.make_vao(v_chair, i_chair)
+
+        # Umpire figure mesh
+        v_umpire, i_umpire = _umpire_mesh()
+        self.umpire_vao, _ = renderer.make_vao(v_umpire, i_umpire)
+
+        self.renderer = renderer
+        self.pos = np.array(position, dtype='f4')
+
+        # Rotate supaya menghadap lapangan
+        self.model = (translate(*position) @ rot_y(angle)).astype('f4')
+
+    def draw(self, vp):
+        self.renderer.draw_vao(self.chair_vao, self.model, vp)
+        self.renderer.draw_vao(self.umpire_vao, self.model, vp)
