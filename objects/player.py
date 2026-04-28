@@ -34,6 +34,8 @@ SKIN      = [0.95, 0.75, 0.55]
 SHOE      = [0.12, 0.12, 0.12]
 SHADOW    = [0.0,  0.0,  0.0]
 DEBUG_DOT = [1.0,  1.0,  0.0]
+FACE_BLACK = [0.05, 0.05, 0.05]
+FACE_RED   = [0.8, 0.2, 0.2]
 
 KITS = [
     {'shirt': [0.15, 0.35, 0.85], 'shorts': [0.10, 0.10, 0.55], 'sock': [0.88, 0.88, 0.88]},
@@ -64,6 +66,8 @@ class Player:
             return renderer.make_vao(v, i, alpha=alpha)[0]
 
         self.vao_head   = vao(make_sphere,      0.21, 7, 10, SKIN)
+        self.vao_eye    = vao(make_sphere,      0.035, 4, 6, FACE_BLACK)
+        self.vao_mouth  = vao(make_box,         0.10, 0.02, 0.02, FACE_RED)
         self.vao_body   = vao(make_box,         0.42, 0.56, 0.22, kit['shirt'])
         self.vao_uarm   = vao(make_cylinder,    0.075, UARM_H,  8, SKIN)
         self.vao_larm   = vao(make_cylinder,    0.065, LARM_H,  8, SKIN)
@@ -230,6 +234,16 @@ class Player:
         # Head — tracks shuttlecock
         head = body @ translate(0, HEAD_DY, 0) @ rot_y(self._s_head_yaw) @ rot_x(self._s_head_pit)
         r.draw_vao(self.vao_head, head.astype('f4'), vp)
+
+        # ── Eyes ──
+        eye_left  = head @ translate(-0.07, 0.05, 0.18)
+        eye_right = head @ translate( 0.07, 0.05, 0.18)
+        r.draw_vao(self.vao_eye, eye_left.astype('f4'), vp)
+        r.draw_vao(self.vao_eye, eye_right.astype('f4'), vp)
+
+        # ── Smile (sedikit melengkung dengan rotasi) ──
+        smile = head @ translate(0, -0.05, 0.19) @ rot_x(0.3)
+        r.draw_vao(self.vao_mouth, smile.astype('f4'), vp)
 
         # Left arm (idle)
         sh_l    = root @ translate(-SH_X, SH_Y, 0)

@@ -9,7 +9,7 @@ from objects.net import Net
 from objects.shuttlecock import Shuttlecock
 from objects.player import Player
 from objects.environment import Environment
-from objects.props import Bench, Bottle, Bag, ShuttlecockBox, Spectator, Stands
+from objects.props import Bench, Bottle, Bag, ShuttlecockBox, Spectator, Stands, Umpire, SponsorBanner, LineUmpire
 
 WIDTH, HEIGHT = 1280, 720
 FPS_TARGET    = 60
@@ -49,6 +49,30 @@ def main():
     # ── Stands (tribun bertingkat) ────────────────────────────────────────────
     stands = Stands(ctx, renderer)
 
+    # ── Umpire (wasit di net) ─────────────────────────────────────────────────
+    umpire = Umpire(ctx, renderer, position=(3.5, 0.0, 0.0))
+
+    # ── Sponsor Banners (Iklan sponsor) ───────────────────────────────────────
+    import math
+    sponsor_banners = [
+        # Left side banners (facing right)
+        SponsorBanner(ctx, renderer, "YONEX", position=(-6.5, 2.0, -5.0), angle=math.pi/2),
+        SponsorBanner(ctx, renderer, "LING", position=(-6.5, 2.0, 5.0), angle=math.pi/2),
+        # Right side banners (facing left)
+        SponsorBanner(ctx, renderer, "YONEX", position=(6.5, 2.0, -5.0), angle=-math.pi/2),
+        SponsorBanner(ctx, renderer, "LING", position=(6.5, 2.0, 5.0), angle=-math.pi/2),
+    ]
+
+    # ── Line Umpires (Hakim garis di titik ujung lapangan) ────────────────────
+    line_umpires = [
+        # Front line umpires (looking backward at back line)
+        LineUmpire(ctx, renderer, position=(-3.8, 0.0, -7.2), angle=0),
+        LineUmpire(ctx, renderer, position=(3.8, 0.0, -7.2), angle=0),
+        # Back line umpires (looking forward at front line)
+        LineUmpire(ctx, renderer, position=(-3.8, 0.0, 7.2), angle=math.pi),
+        LineUmpire(ctx, renderer, position=(3.8, 0.0, 7.2), angle=math.pi),
+    ]
+
     # ── Props: benches ────────────────────────────────────────────────────────
     import math
     benches = [
@@ -83,14 +107,16 @@ def main():
         [0.40, 0.10, 0.60],
     ]
     spectators = []
-    STEP_H = 0.40
-    STEP_D = 0.55
-    Z_POSITIONS = [-4.5, -1.5, 1.5, 4.5]   # 4 spectators per tier per side
+    STEP_H = 0.38
+    STEP_D = 0.50
+    # Increased Z positions: 12 spectators per tier per side instead of 4
+    Z_POSITIONS = [-6.5, -5.5, -4.5, -3.0, -1.5, -0.5, 0.5, 1.5, 3.0, 4.5, 5.5, 6.5]
 
-    for tier in range(5):
+    # Increased tiers from 5 to 8 for more rows
+    for tier in range(8):
         y = tier * STEP_H + 0.55   # sit on top of bench
         for zi, z in enumerate(Z_POSITIONS):
-            color_idx = (tier * 4 + zi) % len(SHIRT_COLORS)
+            color_idx = (tier * len(Z_POSITIONS) + zi) % len(SHIRT_COLORS)
             # Left stand: X = -7.0 - tier*STEP_D, faces +X (angle=+π/2)
             lx = -7.0 - tier * STEP_D
             spectators.append(Spectator(
@@ -170,6 +196,8 @@ def main():
 
         environment.draw(vp)
         stands.draw(vp)
+        umpire.draw(vp)
+        for lu in line_umpires: lu.draw(vp)
         court.draw(vp)
         net.draw(vp)
 
