@@ -347,3 +347,172 @@ class Umpire:
     def draw(self, vp):
         self.renderer.draw_vao(self.chair_vao, self.model, vp)
         self.renderer.draw_vao(self.umpire_vao, self.model, vp)
+
+
+# ── Sponsor Banner (Iklan sponsor) ────────────────────────────────────────────
+def _sponsor_banner_mesh(sponsor_name, bg_color):
+    """Create a sponsor banner with text/logo."""
+    meshes = []
+    
+    # Background panel
+    v, i = make_box(1.2, 0.60, 0.08, bg_color)
+    meshes.append((v, i))
+    
+    # Border frame (gold/silver)
+    border_color = [0.85, 0.85, 0.10]
+    # Top border
+    v, i = make_box(1.2, 0.08, 0.10, border_color)
+    v = v.copy(); v[:, 1] += 0.32
+    meshes.append((v, i))
+    # Bottom border
+    v, i = make_box(1.2, 0.08, 0.10, border_color)
+    v = v.copy(); v[:, 1] -= 0.32
+    meshes.append((v, i))
+    
+    # Logo/text representation (simple colored rectangles)
+    text_color = [0.95, 0.95, 0.95]
+    
+    if sponsor_name == "YONEX":
+        # Yonex: red brand color
+        bg_color = [0.95, 0.20, 0.10]
+        # Re-create background with Yonex red
+        v, i = make_box(1.2, 0.60, 0.08, bg_color)
+        meshes = [(v, i)]
+        
+        # Text "YONEX" as blocks
+        # Y
+        v, i = make_box(0.08, 0.35, 0.10, text_color)
+        v = v.copy(); v[:, 0] -= 0.35
+        meshes.append((v, i))
+        # O
+        v, i = make_box(0.08, 0.35, 0.10, text_color)
+        v = v.copy(); v[:, 0] -= 0.10
+        meshes.append((v, i))
+        # N
+        v, i = make_box(0.08, 0.35, 0.10, text_color)
+        v = v.copy(); v[:, 0] += 0.15
+        meshes.append((v, i))
+        # E
+        v, i = make_box(0.08, 0.35, 0.10, text_color)
+        v = v.copy(); v[:, 0] += 0.40
+        meshes.append((v, i))
+        # X
+        v, i = make_box(0.08, 0.35, 0.10, text_color)
+        v = v.copy(); v[:, 0] += 0.65
+        meshes.append((v, i))
+        
+    elif sponsor_name == "LING":
+        # Ling: blue brand color
+        bg_color = [0.10, 0.40, 0.85]
+        v, i = make_box(1.2, 0.60, 0.08, bg_color)
+        meshes = [(v, i)]
+        
+        # Text "LING" as blocks
+        # L
+        v, i = make_box(0.08, 0.35, 0.10, text_color)
+        v = v.copy(); v[:, 0] -= 0.25
+        meshes.append((v, i))
+        # I
+        v, i = make_box(0.08, 0.35, 0.10, text_color)
+        v = v.copy(); v[:, 0] -= 0.05
+        meshes.append((v, i))
+        # N
+        v, i = make_box(0.08, 0.35, 0.10, text_color)
+        v = v.copy(); v[:, 0] += 0.15
+        meshes.append((v, i))
+        # G
+        v, i = make_box(0.08, 0.35, 0.10, text_color)
+        v = v.copy(); v[:, 0] += 0.35
+        meshes.append((v, i))
+    
+    # Add borders
+    border_color = [0.85, 0.85, 0.10]
+    v, i = make_box(1.2, 0.08, 0.10, border_color)
+    v = v.copy(); v[:, 1] += 0.32
+    meshes.append((v, i))
+    v, i = make_box(1.2, 0.08, 0.10, border_color)
+    v = v.copy(); v[:, 1] -= 0.32
+    meshes.append((v, i))
+    
+    return combine_meshes(meshes)
+
+
+class SponsorBanner:
+    """Sponsor advertising banner placed at courtside."""
+    def __init__(self, ctx, renderer, sponsor_name, position, angle=0.0):
+        v, i = _sponsor_banner_mesh(sponsor_name, [0.90, 0.90, 0.90])
+        self.vao, _ = renderer.make_vao(v, i)
+        self.renderer = renderer
+        self.model = (translate(*position) @ rot_y(angle)).astype('f4')
+    
+    def draw(self, vp):
+        self.renderer.draw_vao(self.vao, self.model, vp)
+
+
+# ── Line Umpire (Hakim Garis) ────────────────────────────────────────────────
+def _line_umpire_mesh():
+    """Line umpire sitting position."""
+    meshes = []
+    SKIN = [0.85, 0.65, 0.45]
+    UNIFORM = [0.15, 0.15, 0.35]
+
+    # ── Kursi kecil ──
+    v, i = make_box(0.40, 0.08, 0.40, [0.3, 0.3, 0.3])
+    v = v.copy(); v[:, 1] += 0.25
+    meshes.append((v, i))
+
+    # kaki kursi
+    for lx in [-0.15, 0.15]:
+        for lz in [-0.15, 0.15]:
+            v, i = make_box(0.05, 0.25, 0.05, [0.2, 0.2, 0.2])
+            v = v.copy(); v[:, 0] += lx; v[:, 1] += 0.125; v[:, 2] += lz
+            meshes.append((v, i))
+
+    # ── Badan (lebih rendah karena duduk) ──
+    v, i = make_box(0.26, 0.32, 0.16, UNIFORM)
+    v = v.copy(); v[:, 1] += 0.55
+    meshes.append((v, i))
+
+    # ── Kepala ──
+    v, i = make_sphere(0.14, 5, 7, SKIN)
+    v = v.copy(); v[:, 1] += 0.95
+    meshes.append((v, i))
+
+    # ── Lengan (lebih santai) ──
+    # kanan (pegang bendera sedikit naik)
+    v, i = make_box(0.08, 0.30, 0.08, SKIN)
+    v = v.copy(); v[:, 0] += 0.18; v[:, 1] += 0.65
+    meshes.append((v, i))
+
+    # kiri (turun santai)
+    v, i = make_box(0.08, 0.28, 0.08, SKIN)
+    v = v.copy(); v[:, 0] -= 0.18; v[:, 1] += 0.60
+    meshes.append((v, i))
+
+    # ── Kaki (ditekuk ke depan = posisi duduk) ──
+    for sx in [-0.08, 0.08]:
+        v, i = make_box(0.08, 0.20, 0.12, UNIFORM)
+        v = v.copy()
+        v[:, 0] += sx
+        v[:, 1] += 0.35
+        v[:, 2] += 0.18   # maju ke depan (ini kunci biar terlihat duduk)
+        meshes.append((v, i))
+
+    # ── Bendera ──
+    v, i = make_box(0.20, 0.15, 0.06, [0.95, 0.20, 0.20])
+    v = v.copy(); v[:, 0] += 0.22; v[:, 1] += 0.85; v[:, 2] -= 0.05
+    meshes.append((v, i))
+
+    return combine_meshes(meshes)
+
+
+class LineUmpire:
+    """Line umpire sitting at court boundary to monitor lines."""
+    def __init__(self, ctx, renderer, position=(0.0, 0.0, 0.0), angle=0.0):
+        v, i = _line_umpire_mesh()
+        self.vao, _ = renderer.make_vao(v, i)
+        self.renderer = renderer
+        self.model = (translate(*position) @ rot_y(angle)).astype('f4')
+
+    def draw(self, vp):
+        self.renderer.draw_vao(self.vao, self.model, vp)
