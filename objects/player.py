@@ -1,21 +1,19 @@
 """
 Player — hierarchical low-poly character.
 
-Right arm aim system (2-axis):
-  shoulder_world = root @ translate(SH_X, SH_Y, 0) @ [0,0,0,1]
-  dir   = normalize(shuttle - shoulder_world)
-  yaw   = atan2(dir.x, dir.z)          → rot_y in shoulder local space
-  pitch = atan2(dir.y, |dir.xz|)       → rot_z (down = negative pitch)
-  elbow_bend = lerp(0.7, 0.15, dist/2.5)  → more bent when close
+face_state: "neutral" | "smile" | "angry"
+  neutral → normal eyes + flat mouth
+  smile   → mouth scale melebar (rot_x lebih besar)
+  angry   → alis turun (eye_y offset), mouth sedikit turun
 
 Hit state machine: idle → prepare → hit → recover → idle
-  prepare: arm pulled back (pitch -= 0.3), body rotates back
-  hit:     arm swings fast (pitch += 0.6), racket leads
-  recover: arm follows through (pitch -= 0.2), body returns
+  prepare: arm pulled back, body rotates back
+  hit:     arm swings fast, racket leads, body leans forward
+  recover: arm follows through, body returns
 """
 import numpy as np
 from renderer import (make_box, make_sphere, make_cylinder, make_circle_flat,
-                      translate, rot_x, rot_y, rot_z)
+                      translate, rot_x, rot_y, rot_z, scale_mat)
 from objects.racket import build_racket_mesh
 from animation import lerp, SWING_TYPES
 
@@ -30,12 +28,13 @@ SH_X    = 0.30
 SH_Y    = 1.20
 HIP_X   = 0.13
 
-SKIN      = [0.95, 0.75, 0.55]
-SHOE      = [0.12, 0.12, 0.12]
-SHADOW    = [0.0,  0.0,  0.0]
-DEBUG_DOT = [1.0,  1.0,  0.0]
+SKIN       = [0.95, 0.75, 0.55]
+SHOE       = [0.12, 0.12, 0.12]
+SHADOW     = [0.0,  0.0,  0.0]
+DEBUG_DOT  = [1.0,  1.0,  0.0]
 FACE_BLACK = [0.05, 0.05, 0.05]
-FACE_RED   = [0.8, 0.2, 0.2]
+FACE_RED   = [0.8,  0.2,  0.2]
+BROW_COLOR = [0.35, 0.22, 0.10]
 
 KITS = [
     {'shirt': [0.15, 0.35, 0.85], 'shorts': [0.10, 0.10, 0.55], 'sock': [0.88, 0.88, 0.88]},
@@ -57,6 +56,8 @@ class Player:
         self._hit_blend   = 0.0
         self._shuttle_pos = np.array([0.0, 1.5, 0.0], dtype='f4')
         self.hit_state    = 'idle'   # 'idle' | 'prepare' | 'hit' | 'recover'
+        self.face_state   = 'neutral'  # 'neutral' | 'smile' | 'angry'
+        self._face_timer  = 0.0      # how long current face_state lasts
 
         kit = KITS[Player._kit_index % len(KITS)]
         Player._kit_index += 1
@@ -68,6 +69,7 @@ class Player:
         self.vao_head   = vao(make_sphere,      0.21, 7, 10, SKIN)
         self.vao_eye    = vao(make_sphere,      0.035, 4, 6, FACE_BLACK)
         self.vao_mouth  = vao(make_box,         0.10, 0.02, 0.02, FACE_RED)
+        self.vao_brow   = vao(make_box,         0.08, 0.015, 0.015, BROW_COLOR)
         self.vao_body   = vao(make_box,         0.42, 0.56, 0.22, kit['shirt'])
         self.vao_uarm   = vao(make_cylinder,    0.075, UARM_H,  8, SKIN)
         self.vao_larm   = vao(make_cylinder,    0.065, LARM_H,  8, SKIN)
@@ -83,14 +85,20 @@ class Player:
         self._s_elbow       = 0.25
         self._s_head_yaw    = 0.0
         self._s_head_pit    = 0.0
-        self._s_body_rot    = 0.0   # smoothed body rotation offset
-        self._s_racket_lag  = 0.0   # smoothed racket lag
+        self._s_body_rot    = 0.0
+        self._s_body_lean   = 0.0   # forward lean saat hit
+        self._s_racket_lag  = 0.0
 
         self.state       = 'idle'
         self.swing_type  = 'forehand'
         self._target_pos = self.position.copy()
         self.SPEED       = 3.5
         self._shuttle    = None
+
+    def set_face_state(self, state, duration=1.2):
+        """Set face expression with auto-reset after duration seconds."""
+        self.face_state  = state
+        self._face_timer = duration
 
     def set_target(self, x, z):
         if self.facing > 0:
@@ -115,6 +123,12 @@ class Player:
         self._t += dt
         k = min(SMOOTH * dt, 1.0)
 
+        # Auto-reset face_state ke neutral
+        if self._face_timer > 0.0:
+            self._face_timer -= dt
+            if self._face_timer <= 0.0:
+                self.face_state = 'neutral'
+
         if self.state == 'move':
             to_target = self._target_pos - self.position
             to_target[1] = 0
@@ -129,28 +143,32 @@ class Player:
         hb = self._hit_blend
         fa = 0.0 if self.facing > 0 else np.pi
 
-        # ── Swing-type offsets (forehand / smash / backhand) ──────────────────
         sw = SWING_TYPES.get(self.swing_type, SWING_TYPES['forehand'])
         if self.hit_state == 'prepare':
             state_pitch_offset = sw['pitch_prepare']
             target_body_rot    = sw['body_prepare'] * self.facing
-            target_racket_lag  = +0.25
+            target_body_lean   = -0.08   # sedikit condong ke belakang saat prepare
+            target_racket_lag  = +0.30   # racket tertinggal saat prepare
         elif self.hit_state == 'hit':
             state_pitch_offset = sw['pitch_hit']
             target_body_rot    = sw['body_hit'] * self.facing
-            target_racket_lag  = -0.15
+            target_body_lean   = +0.18   # condong ke depan saat hit
+            target_racket_lag  = -0.20   # racket memimpin saat hit
         elif self.hit_state == 'recover':
             state_pitch_offset = sw['pitch_recover']
             target_body_rot    = sw['body_prepare'] * self.facing * 0.5
-            target_racket_lag  = +0.10
+            target_body_lean   = +0.06   # masih sedikit condong
+            target_racket_lag  = +0.12   # follow-through: racket masih di depan
         else:
             state_pitch_offset = 0.0
             target_body_rot    = 0.0
+            target_body_lean   = 0.0
             target_racket_lag  = 0.0
 
-        # Smooth body rotation and racket lag
-        self._s_body_rot   += (target_body_rot  - self._s_body_rot)  * k * 1.5
-        self._s_racket_lag += (target_racket_lag - self._s_racket_lag) * k * 2.0
+        self._s_body_rot  += (target_body_rot  - self._s_body_rot)  * k * 1.5
+        self._s_body_lean += (target_body_lean - self._s_body_lean) * k * 1.8
+        # Racket lag: slower to follow = more natural delay
+        self._s_racket_lag += (target_racket_lag - self._s_racket_lag) * k * 1.2
 
         p = self.position
         root_approx = (translate(p[0], p[1], p[2])
@@ -168,14 +186,12 @@ class Player:
         target_yaw   = np.clip(target_yaw,   -0.6,  0.6)
         target_pitch = np.clip(target_pitch, -1.3,  0.3)
 
-        # Apply hit-state pitch + yaw offset on top of aim
         target_pitch += state_pitch_offset * hb
         target_yaw   += sw['yaw_offset'] * hb
 
         target_elbow = lerp(0.70, 0.15, np.clip(dist / 2.5, 0.0, 1.0))
         target_elbow = lerp(target_elbow, 0.05, hb)
 
-        # Head tracking toward shuttlecock
         head_origin = p + np.array([0, 1.85, 0], dtype='f4')
         dh = aim_pos - head_origin
         target_hy = float(np.arctan2(dh[0], dh[2])) * 0.35
@@ -206,6 +222,51 @@ class Player:
         foot   = shin  @ translate(0, -SHIN_H / 2, 0.03)
         return thigh, shin, foot
 
+    def _draw_face(self, head_mat, vp):
+        """Draw eyes, eyebrows, and mouth based on face_state."""
+        r = self.renderer
+        fs = self.face_state
+
+        # ── Eyebrows ──
+        # neutral: flat; angry: rotated down toward center
+        brow_rot_l = -0.3 if fs == 'angry' else 0.0
+        brow_rot_r =  0.3 if fs == 'angry' else 0.0
+        brow_y_offset = -0.02 if fs == 'angry' else 0.0
+
+        brow_l = head_mat @ translate(-0.07, 0.12 + brow_y_offset, 0.18) @ rot_z(brow_rot_l)
+        brow_r = head_mat @ translate( 0.07, 0.12 + brow_y_offset, 0.18) @ rot_z(brow_rot_r)
+        r.draw_vao(self.vao_brow, brow_l.astype('f4'), vp)
+        r.draw_vao(self.vao_brow, brow_r.astype('f4'), vp)
+
+        # ── Eyes ──
+        # angry: squint (scale y kecil)
+        eye_sy = 0.6 if fs == 'angry' else 1.0
+        eye_l_mat = head_mat @ translate(-0.07, 0.05, 0.18) @ scale_mat(1.0, eye_sy, 1.0)
+        eye_r_mat = head_mat @ translate( 0.07, 0.05, 0.18) @ scale_mat(1.0, eye_sy, 1.0)
+        r.draw_vao(self.vao_eye, eye_l_mat.astype('f4'), vp)
+        r.draw_vao(self.vao_eye, eye_r_mat.astype('f4'), vp)
+
+        # ── Mouth ──
+        # neutral: flat; smile: melebar + rot_x; angry: sedikit turun
+        if fs == 'smile':
+            mouth_sx   = 1.6   # melebar
+            mouth_rx   = 0.45  # curve ke atas
+            mouth_y    = -0.05
+        elif fs == 'angry':
+            mouth_sx   = 1.0
+            mouth_rx   = -0.2  # curve ke bawah
+            mouth_y    = -0.07
+        else:
+            mouth_sx   = 1.0
+            mouth_rx   = 0.15
+            mouth_y    = -0.05
+
+        mouth = (head_mat
+                 @ translate(0, mouth_y, 0.19)
+                 @ scale_mat(mouth_sx, 1.0, 1.0)
+                 @ rot_x(mouth_rx))
+        r.draw_vao(self.vao_mouth, mouth.astype('f4'), vp)
+
     def draw(self, vp):
         r  = self.renderer
         p  = self.position
@@ -222,7 +283,7 @@ class Player:
 
         root = (translate(p[0], p[1] + bob, p[2])
                 @ rot_y(fa + self._s_body_rot)
-                @ rot_x(-0.07 + sway))
+                @ rot_x(-0.07 + sway + self._s_body_lean))
 
         # Shadow
         r.draw_vao(self.vao_shadow, translate(p[0], 0.02, p[2]).astype('f4'), vp, alpha=0.28)
@@ -235,15 +296,8 @@ class Player:
         head = body @ translate(0, HEAD_DY, 0) @ rot_y(self._s_head_yaw) @ rot_x(self._s_head_pit)
         r.draw_vao(self.vao_head, head.astype('f4'), vp)
 
-        # ── Eyes ──
-        eye_left  = head @ translate(-0.07, 0.05, 0.18)
-        eye_right = head @ translate( 0.07, 0.05, 0.18)
-        r.draw_vao(self.vao_eye, eye_left.astype('f4'), vp)
-        r.draw_vao(self.vao_eye, eye_right.astype('f4'), vp)
-
-        # ── Smile (sedikit melengkung dengan rotasi) ──
-        smile = head @ translate(0, -0.05, 0.19) @ rot_x(0.3)
-        r.draw_vao(self.vao_mouth, smile.astype('f4'), vp)
+        # Face expressions
+        self._draw_face(head, vp)
 
         # Left arm (idle)
         sh_l    = root @ translate(-SH_X, SH_Y, 0)
@@ -261,7 +315,7 @@ class Player:
         r.draw_vao(self.vao_uarm, uarm_r.astype('f4'), vp)
         r.draw_vao(self.vao_larm, larm_r.astype('f4'), vp)
 
-        # Racket with lag offset (natural feel: racket trails/leads arm)
+        # Racket with lag (natural delay: racket trails on prepare, leads on hit)
         racket = hand @ rot_x(np.pi) @ rot_z(-0.12 + self._s_racket_lag)
         r.draw_vao(self.vao_racket, racket.astype('f4'), vp)
 

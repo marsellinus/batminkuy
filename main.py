@@ -9,14 +9,16 @@ from objects.net import Net
 from objects.shuttlecock import Shuttlecock
 from objects.player import Player
 from objects.environment import Environment
-from objects.props import Bench, Bottle, Bag, ShuttlecockBox, Spectator, Stands, Umpire, SponsorBanner, LineUmpire
+from objects.props import (Bench, Bottle, Bag, ShuttlecockBox, Spectator, Stands,
+                           Umpire, SponsorBanner, LineUmpire, AudienceBanner, WallFlag,
+                           Towel, FloorLight, ScoreBoard)
 
 WIDTH, HEIGHT = 1280, 720
 FPS_TARGET    = 60
 DEBUG         = False
 
 # Base FOV; camera zoom reduces this temporarily on hit
-BASE_FOV = 45.0
+BASE_FOV = 55.0
 
 
 def main():
@@ -98,6 +100,28 @@ def main():
         ShuttlecockBox(ctx, renderer, ( 5.0, 0.0,  3.5)),
     ]
 
+    # ── Towels (handuk di bangku pemain) ──────────────────────────────────────
+    towels = [
+        Towel(ctx, renderer, (-5.5, 0.55, -1.5), angle=math.pi/2),
+        Towel(ctx, renderer, (-5.5, 0.55,  0.5), angle=math.pi/2),
+        Towel(ctx, renderer, ( 5.5, 0.55, -0.5), angle=-math.pi/2),
+        Towel(ctx, renderer, ( 5.5, 0.55,  1.5), angle=-math.pi/2),
+    ]
+
+    # ── Floor Lights (lampu sorot di sudut lapangan) ──────────────────────────
+    floor_lights = [
+        FloorLight(ctx, renderer, (-8.5, 0.0, -7.5), angle= math.pi/4),
+        FloorLight(ctx, renderer, ( 8.5, 0.0, -7.5), angle=-math.pi/4 + math.pi),
+        FloorLight(ctx, renderer, (-8.5, 0.0,  7.5), angle= math.pi/4 + math.pi),
+        FloorLight(ctx, renderer, ( 8.5, 0.0,  7.5), angle=-math.pi/4),
+    ]
+
+    # ── Score Boards (papan skor di kedua sisi net) ───────────────────────────
+    score_boards = [
+        ScoreBoard(ctx, renderer, (-4.5, 1.2, 0.0), angle= math.pi/2),
+        ScoreBoard(ctx, renderer, ( 4.5, 1.2, 0.0), angle=-math.pi/2),
+    ]
+
     # ── Spectators on stands (left side X≈-4.5, right side X≈4.5) ────────────
     # Place spectators on each tier of the stands
     SHIRT_COLORS = [
@@ -107,28 +131,64 @@ def main():
         [0.40, 0.10, 0.60],
     ]
     spectators = []
-    STEP_H = 0.38
-    STEP_D = 0.50
-    # Increased Z positions: 12 spectators per tier per side instead of 4
-    Z_POSITIONS = [-6.5, -5.5, -4.5, -3.0, -1.5, -0.5, 0.5, 1.5, 3.0, 4.5, 5.5, 6.5]
+    # Konstanta harus sinkron dengan _stands_mesh
+    S_STEP_H = 0.42
+    S_STEP_D = 0.52
+    S_SLAB_T = 0.20
+    S_SIDE_X = 9.5
+    S_ROW_W  = 14.0
 
-    # Increased tiers from 5 to 8 for more rows
-    for tier in range(8):
-        y = tier * STEP_H + 0.55   # sit on top of bench
-        for zi, z in enumerate(Z_POSITIONS):
-            color_idx = (tier * len(Z_POSITIONS) + zi) % len(SHIRT_COLORS)
-            # Left stand: X = -7.0 - tier*STEP_D, faces +X (angle=+π/2)
-            lx = -7.0 - tier * STEP_D
+    SPACING_Z = 0.85  # lebih longgar (lebar penonton 0.30, gap 0.55)
+    N_COLS    = int(S_ROW_W / SPACING_Z)          # ~16 kolom
+    Z_START   = -(S_ROW_W / 2) + SPACING_Z / 2
+
+    _ITEMS = [None, None, None, 'stick', 'flag']  # lebih sedikit yang pegang item
+
+    for tier in range(8):   # 8 tier cukup, tidak perlu 10
+        # Y: tepat di atas bench slab
+        y  = tier * S_STEP_H + S_SLAB_T + 0.03
+        # X: slab tier ini (mundur ke luar per tier)
+        lx = -(S_SIDE_X + tier * S_STEP_D)
+        rx =   S_SIDE_X + tier * S_STEP_D
+
+        for col in range(N_COLS):
+            z = Z_START + col * SPACING_Z
+            # Offset kecil agar tidak terlalu seragam
+            z_off = ((tier * 7 + col * 3) % 5 - 2) * 0.04
+
+            color_idx = (tier * N_COLS + col) % len(SHIRT_COLORS)
+            item_l = _ITEMS[(tier * 3 + col * 7) % len(_ITEMS)]
+            item_r = _ITEMS[(tier * 5 + col * 3 + 1) % len(_ITEMS)]
+
             spectators.append(Spectator(
-                ctx, renderer, (lx, y, z),
-                SHIRT_COLORS[color_idx], angle=math.pi / 2
+                ctx, renderer, (lx, y, z + z_off),
+                SHIRT_COLORS[color_idx], angle=math.pi / 2,
+                item_type=item_l, item_color_idx=(tier + col) % 5
             ))
-            # Right stand: X = +7.0 + tier*STEP_D, faces -X (angle=-π/2)
-            rx = 7.0 + tier * STEP_D
             spectators.append(Spectator(
-                ctx, renderer, (rx, y, z),
-                SHIRT_COLORS[(color_idx + 5) % len(SHIRT_COLORS)], angle=-math.pi / 2
+                ctx, renderer, (rx, y, z + z_off),
+                SHIRT_COLORS[(color_idx + 5) % len(SHIRT_COLORS)], angle=-math.pi / 2,
+                item_type=item_r, item_color_idx=(tier + col + 2) % 5
             ))
+
+    audience_banners = []
+
+    # ── WallFlag — bendera di dinding belakang arena ─────────────────────────
+    # Dinding belakang di Z = ±13.5 (FLOOR_L/2 = 14)
+    # Spacing 1.5 unit, 6 bendera per dinding, centered
+    _FLAG_COUNTRIES = ['INA', 'MAS', 'CHN', 'JPN', 'KOR', 'INA']
+    flags = []
+    N_FLAGS   = len(_FLAG_COUNTRIES)
+    SPACING_F = 1.8
+    START_X   = -(N_FLAGS - 1) * SPACING_F / 2
+    FLAG_Y    = 3.5   # ketinggian di dinding
+    for k, country in enumerate(_FLAG_COUNTRIES):
+        fx = START_X + k * SPACING_F
+        # Dinding belakang (Z = -13.5, menghadap ke dalam = +Z)
+        flags.append(WallFlag(ctx, renderer, (fx, FLAG_Y, -15.8), country=country, phase=k * 0.6))
+        # Dinding depan (Z = +16, menghadap ke dalam = -Z)
+        flags.append(WallFlag(ctx, renderer, (fx, FLAG_Y,  15.8), country=country, phase=k * 0.9))
+
 
     clock       = pygame.time.Clock()
     slow_motion = False
@@ -171,10 +231,19 @@ def main():
         if anim.cam_shake > 0.01 and _prev_shake <= 0.01:
             for s in spectators:
                 s.trigger_hit()
+            umpire.trigger_hit()
+            for lu in line_umpires:
+                lu.trigger_hit()
         _prev_shake = anim.cam_shake
 
         for s in spectators:
             s.update(dt)
+        umpire.update(dt)
+        for lu in line_umpires:
+            lu.update(dt)
+
+        for b in audience_banners: b.update(dt)
+        for f in flags:            f.update(dt)
 
         # ── Camera zoom: reduce FOV temporarily on hit ────────────────────────
         if anim.cam_zoom > 0.0:
@@ -205,7 +274,13 @@ def main():
         for b in bottles:       b.draw(vp)
         for b in bags:          b.draw(vp)
         for b in shuttle_boxes: b.draw(vp)
+        for t in towels:        t.draw(vp)
+        for f in floor_lights:  f.draw(vp)
+        for s in score_boards:  s.draw(vp)
         for s in spectators:    s.draw(vp)
+
+        for b in audience_banners: b.draw(vp)
+        for f in flags:            f.draw(vp)
 
         shuttlecock.draw(vp)
         player1.draw(vp)

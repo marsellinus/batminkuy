@@ -1,7 +1,7 @@
 import numpy as np
 import pygame
 
-MODES = ['free', 'follow', 'side']
+MODES = ['free', 'follow', 'side', 'broadcast']
 
 
 def perspective(fov_deg, aspect, near, far):
@@ -36,19 +36,16 @@ class Camera:
     SENSITIVITY = 0.15
 
     def __init__(self, width, height):
-        self.proj      = perspective(45.0, width / height, 0.1, 100.0)
-        self.mode_idx  = 0
-        # free cam
-        self.pos       = np.array([0.0, 3.0, 8.0], dtype='f4')
-        self.yaw       = -90.0
-        self.pitch     = -15.0
-        # smooth pos (lerped)
+        self.proj     = perspective(55.0, width / height, 0.1, 200.0)
+        self.mode_idx = 0
+        # Free cam — mulai di posisi TV broadcast (tidak terhalang penonton)
+        self.pos   = np.array([0.0, 5.5, 12.0], dtype='f4')
+        self.yaw   = -90.0
+        self.pitch = -20.0
+
         self._smooth_pos    = self.pos.copy()
         self._smooth_target = np.array([0.0, 1.0, 0.0], dtype='f4')
-        # cinematic orbit
-        self._cin_t    = 0.0
-        # side-view oscillation
-        self._side_t   = 0.0
+        self._t = 0.0
 
     @property
     def mode(self):
@@ -56,13 +53,15 @@ class Camera:
 
     def cycle_mode(self):
         self.mode_idx = (self.mode_idx + 1) % len(MODES)
-        # Snap immediately to avoid blank frames during transition
         if self.mode == 'follow':
-            self._smooth_pos    = self.pos.copy()
-            self._smooth_target = np.array([0.0, 1.0, 0.0], dtype='f4')
+            self._smooth_target = np.array([0.0, 1.5, 0.0], dtype='f4')
         elif self.mode == 'side':
-            self._smooth_pos    = np.array([10.5, 4.5, 0.0], dtype='f4')
+            self._smooth_pos    = np.array([17.0, 6.0, 0.0], dtype='f4')
             self._smooth_target = np.array([0.0,  1.5, 0.0], dtype='f4')
+        elif self.mode == 'broadcast':
+            # Sudut kamera TV badminton: belakang-atas, sedikit miring
+            self._smooth_pos    = np.array([0.0, 8.0, 14.0], dtype='f4')
+            self._smooth_target = np.array([0.0, 1.0,  0.0], dtype='f4')
         print(f"[Camera] mode → {self.mode}")
 
     def _forward(self):
@@ -70,7 +69,7 @@ class Camera:
         return np.array([np.cos(pr)*np.cos(yr), np.sin(pr), np.cos(pr)*np.sin(yr)], dtype='f4')
 
     def update(self, dt, keys, mx, my, shuttle_pos, shake=0.0):
-        lerp_speed = 6.0 * dt
+        k = min(6.0 * dt, 1.0)
 
         if self.mode == 'free':
             self.yaw  += mx * self.SENSITIVITY
@@ -88,17 +87,29 @@ class Camera:
             self._smooth_target = self.pos + self._forward()
 
         elif self.mode == 'follow':
-            # camera trails behind shuttlecock
-            want_pos = shuttle_pos + np.array([0.0, 2.0, 4.5], dtype='f4')
-            self._smooth_pos    += (want_pos - self._smooth_pos) * lerp_speed
-            self._smooth_target += (shuttle_pos - self._smooth_target) * lerp_speed
+            # Kamera mengikuti shuttlecock dari belakang-atas, tidak terlalu dekat
+            offset = np.array([0.0, 3.5, 6.0], dtype='f4')
+            want_pos = shuttle_pos + offset
+            # Clamp Y agar tidak turun ke bawah lantai
+            want_pos[1] = max(want_pos[1], 2.5)
+            self._smooth_pos    += (want_pos    - self._smooth_pos)    * k
+            self._smooth_target += (shuttle_pos - self._smooth_target) * k * 1.5
 
         elif self.mode == 'side':
-            # Stands extend to X≈9.2, wall at X=11 — camera at X=10.5
-            self._smooth_pos    = np.array([10.5, 4.5, 0.0], dtype='f4')
+            # Tampak samping penuh — di luar tribun
+            self._smooth_pos    = np.array([17.0, 6.0, 0.0], dtype='f4')
             self._smooth_target = np.array([0.0,  1.5, 0.0], dtype='f4')
 
-        # camera shake
+        elif self.mode == 'broadcast':
+            # Sudut TV: kamera bergerak sedikit mengikuti Z shuttlecock
+            bx = 0.0
+            bz = float(shuttle_pos[2]) * 0.15 + 14.0
+            by = 8.0
+            want_pos = np.array([bx, by, bz], dtype='f4')
+            self._smooth_pos    += (want_pos - self._smooth_pos) * k * 0.5
+            self._smooth_target += (np.array([0.0, 1.2, 0.0], dtype='f4')
+                                    - self._smooth_target) * k
+
         if shake > 0.001:
             self._smooth_pos += np.array([
                 np.random.uniform(-shake, shake),

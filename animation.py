@@ -17,10 +17,10 @@ def ease_out(t):
     return 1 - (1 - t) ** 3
 
 
-# Hit phase timing
+# Hit phase timing — longer recover for natural follow-through
 PREPARE_END = 0.20
 HIT_END     = 0.35
-RECOVER_END = 0.70
+RECOVER_END = 0.85   # extended: arm follows through longer
 
 # 3 swing types: (pitch_prepare, pitch_hit, pitch_recover, yaw_offset, body_rot_hit)
 SWING_TYPES = {
@@ -58,10 +58,11 @@ class AnimationController:
 
         if shuttlecock._waiting and dist < self.HIT_DIST and self._hit_timer[receiver_idx] <= 0.0:
             self._hit_timer[receiver_idx] = self.HIT_DURATION
-            # pick random swing type
             self._swing_type[receiver_idx] = random.choice(list(SWING_TYPES.keys()))
             receiver.hit_state  = 'prepare'
             receiver.swing_type = self._swing_type[receiver_idx]
+            # face: angry/serious during hit sequence
+            receiver.set_face_state('angry', duration=self.HIT_DURATION)
             self.cam_shake = 0.0
 
             landing_x = float(np.random.uniform(-1.5, 1.5))
@@ -93,6 +94,9 @@ class AnimationController:
 
                 player.set_hit_blend(blend)
             else:
+                # just finished hit sequence → smile briefly
+                if self._hit_timer[i] > -0.05:
+                    player.set_face_state('smile', duration=1.5)
                 player.set_hit_blend(0.0)
                 player.hit_state  = 'idle'
                 player.swing_type = 'forehand'
