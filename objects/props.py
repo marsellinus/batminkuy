@@ -218,6 +218,75 @@ _CHEER_COLORS = [
 ]
 
 
+# -- Simple world flag presets -------------------------------------------------
+# Pola dibuat sengaja sederhana agar mudah dirender dengan primitive box/sphere.
+FLAG_RED    = [0.85, 0.10, 0.10]
+FLAG_WHITE  = [0.95, 0.95, 0.95]
+FLAG_BLUE   = [0.10, 0.25, 0.80]
+FLAG_SKY    = [0.10, 0.45, 0.95]
+FLAG_YELLOW = [0.95, 0.78, 0.10]
+FLAG_GREEN  = [0.10, 0.55, 0.22]
+FLAG_BLACK  = [0.04, 0.04, 0.04]
+FLAG_ORANGE = [0.95, 0.45, 0.10]
+
+# Bendera yang mudah diimplementasikan memakai garis horizontal/vertikal
+# dan satu lingkaran sederhana untuk Jepang.
+SIMPLE_FLAG_PRESETS = {
+    # Horizontal stripes, top -> bottom
+    'INA': {'orientation': 'horizontal', 'stripes': [FLAG_RED, FLAG_WHITE]},       # Indonesia
+    'MON': {'orientation': 'horizontal', 'stripes': [FLAG_RED, FLAG_WHITE]},       # Monaco
+    'JPN': {'orientation': 'horizontal', 'stripes': [FLAG_WHITE],
+            'circle': FLAG_RED, 'circle_radius': 0.26},                           # Jepang
+    'GER': {'orientation': 'horizontal', 'stripes': [FLAG_BLACK, FLAG_RED, FLAG_YELLOW]},
+    'NED': {'orientation': 'horizontal', 'stripes': [FLAG_RED, FLAG_WHITE, FLAG_BLUE]},
+    'UKR': {'orientation': 'horizontal', 'stripes': [FLAG_SKY, FLAG_YELLOW]},      # Ukraina
+    'POL': {'orientation': 'horizontal', 'stripes': [FLAG_WHITE, FLAG_RED]},       # Polandia
+    'AUT': {'orientation': 'horizontal', 'stripes': [FLAG_RED, FLAG_WHITE, FLAG_RED]},
+    # Vertical stripes, left -> right
+    'FRA': {'orientation': 'vertical', 'stripes': [FLAG_BLUE, FLAG_WHITE, FLAG_RED]},
+    'ITA': {'orientation': 'vertical', 'stripes': [FLAG_GREEN, FLAG_WHITE, FLAG_RED]},
+    'NGA': {'orientation': 'vertical', 'stripes': [FLAG_GREEN, FLAG_WHITE, FLAG_GREEN]},
+    'IRL': {'orientation': 'vertical', 'stripes': [FLAG_GREEN, FLAG_WHITE, FLAG_ORANGE]},
+}
+
+CHEER_FLAG_CODES = ['INA', 'JPN', 'FRA', 'GER', 'ITA', 'NED', 'UKR', 'POL', 'NGA']
+
+
+def _flag_panel_mesh(country='INA', width=0.80, height=0.50, depth=0.05):
+    """Return mesh bendera sederhana, center-origin, dari preset dunia."""
+    preset = SIMPLE_FLAG_PRESETS.get(country, SIMPLE_FLAG_PRESETS['INA'])
+    stripes = preset['stripes']
+    orientation = preset.get('orientation', 'horizontal')
+    meshes = []
+
+    if orientation == 'vertical':
+        stripe_w = width / len(stripes)
+        for idx, color in enumerate(stripes):
+            v, i = make_box(stripe_w, height, depth, color)
+            v = v.copy()
+            v[:, 0] += -width / 2 + stripe_w / 2 + idx * stripe_w
+            meshes.append((v, i))
+    else:
+        stripe_h = height / len(stripes)
+        for idx, color in enumerate(stripes):
+            v, i = make_box(width, stripe_h, depth, color)
+            v = v.copy()
+            # idx=0 adalah stripe paling atas
+            v[:, 1] += height / 2 - stripe_h / 2 - idx * stripe_h
+            meshes.append((v, i))
+
+    if 'circle' in preset:
+        radius = min(width, height) * preset.get('circle_radius', 0.24)
+        v, i = make_sphere(radius, 6, 12, preset['circle'])
+        v = v.copy()
+        # Pipihkan sphere menjadi disk agar terlihat seperti lingkaran di kain.
+        v[:, 2] *= 0.12
+        v[:, 2] += depth * 0.70
+        meshes.append((v, i))
+
+    return combine_meshes(meshes)
+
+
 class Spectator:
     """
     item_type: None | 'stick' (cheerstick polos) | 'flag' (tongkat+bendera kecil)
@@ -241,8 +310,10 @@ class Spectator:
             self.vao_stick, _ = renderer.make_vao(vs, is_)
 
         if item_type == 'flag':
-            # Panel bendera kecil di ujung tongkat
-            vf, if_ = make_box(0.20, 0.13, 0.02, color)
+            # Panel bendera kecil di ujung tongkat.
+            # Dipilih dari bendera dunia yang mudah digambar agar tidak hanya kotak polos.
+            country = CHEER_FLAG_CODES[item_color_idx % len(CHEER_FLAG_CODES)]
+            vf, if_ = _flag_panel_mesh(country, width=0.24, height=0.15, depth=0.02)
             self.vao_item, _ = renderer.make_vao(vf, if_)
         elif item_type == 'stick':
             # Cheerstick: silinder warna-warni di ujung
@@ -378,32 +449,22 @@ class AudienceBanner:
 class CountryFlag:
     """
     Bendera negara digantung dari langit-langit sebagai hiasan GOR.
-    Kawat + rod horizontal + panel stripe menjuntai ke bawah, berkibar.
+    Menggunakan preset bendera dunia sederhana: horizontal/vertical stripes + disk Jepang.
     """
-    FLAG_PRESETS = {
-        'INA': [[0.85, 0.10, 0.10], [0.95, 0.95, 0.95]],
-        'MAS': [[0.85, 0.10, 0.10], [0.95, 0.95, 0.95],
-                [0.85, 0.10, 0.10], [0.95, 0.95, 0.95]],
-        'CHN': [[0.85, 0.10, 0.10]],
-        'JPN': [[0.95, 0.95, 0.95]],
-    }
+    FLAG_W = 0.42
+    FLAG_H = 0.28
 
     def __init__(self, ctx, renderer, position, country='INA', phase=0.0):
-        stripes = self.FLAG_PRESETS.get(country, [[0.85, 0.10, 0.10], [0.95, 0.95, 0.95]])
-        n = len(stripes)
-        stripe_h = 0.38 / n
-        self._stripe_h = stripe_h
-        self.stripe_vaos = []
-        for idx, color in enumerate(stripes):
-            v, i = make_box(0.38, stripe_h, 0.03, color)
-            vao, _ = renderer.make_vao(v, i)
-            self.stripe_vaos.append((vao, idx))
+        v, i = _flag_panel_mesh(country, self.FLAG_W, self.FLAG_H, 0.03)
+        self.vao_flag, _ = renderer.make_vao(v, i)
+
         # Rod horizontal
-        vr, ir = make_cylinder(0.015, 0.42, 6, [0.65, 0.65, 0.65])
+        vr, ir = make_cylinder(0.015, self.FLAG_W + 0.06, 6, [0.65, 0.65, 0.65])
         self.vao_rod, _ = renderer.make_vao(vr, ir)
         # Kawat penggantung
         vw, iw = make_cylinder(0.008, 0.55, 4, [0.50, 0.50, 0.50])
         self.vao_wire, _ = renderer.make_vao(vw, iw)
+
         self.renderer = renderer
         self.base_pos = np.array(position, dtype='f4')
         self._phase   = phase
@@ -416,60 +477,31 @@ class CountryFlag:
         r    = self.renderer
         pos  = self.base_pos
         wave = np.sin(self._t * 1.8 + self._phase) * 0.12
+
         # Kawat
         r.draw_vao(self.vao_wire, translate(pos[0], pos[1] - 0.275, pos[2]).astype('f4'), vp)
-        # Rod horizontal
+        # Rod horizontal, diputar supaya sejajar sumbu X
         r.draw_vao(self.vao_rod,
                    (translate(pos[0], pos[1], pos[2]) @ rot_x(np.pi / 2)).astype('f4'), vp)
-        # Panel bendera menjuntai ke bawah
-        for vao, idx in self.stripe_vaos:
-            stripe_y = pos[1] - 0.05 - idx * self._stripe_h - self._stripe_h / 2
-            m = (translate(pos[0] + 0.19, stripe_y, pos[2]) @ rot_y(wave)).astype('f4')
-            r.draw_vao(vao, m, vp)
+        # Panel bendera menggantung di bawah rod
+        m = (translate(pos[0], pos[1] - 0.05 - self.FLAG_H / 2, pos[2])
+             @ rot_y(wave)).astype('f4')
+        r.draw_vao(self.vao_flag, m, vp)
 
 
 # ── WallFlag — bendera ditempel di dinding arena ─────────────────────────────
 class WallFlag:
     """
     Bendera negara ditempel di dinding arena.
-    Ukuran 0.8 × 0.5. Stripe horizontal sesuai negara.
-    JPN: background putih + lingkaran merah di tengah.
-    Wave effect: rot_y(sin(t)).
+    Ukuran 0.8 x 0.5, dengan pola negara sederhana yang mudah dikenali.
+    Contoh country: INA, JPN, FRA, GER, ITA, NED, UKR, POL, NGA.
     """
-    # (stripe_colors_top_to_bottom, has_circle)
-    FLAG_PRESETS = {
-        'INA': ([[0.85, 0.10, 0.10], [0.95, 0.95, 0.95]], False),
-        'MAS': ([[0.85, 0.10, 0.10], [0.95, 0.95, 0.95],
-                 [0.85, 0.10, 0.10], [0.95, 0.95, 0.95]], False),
-        'CHN': ([[0.85, 0.10, 0.10]], False),
-        'JPN': ([[0.95, 0.95, 0.95]], True),
-        'KOR': ([[0.95, 0.95, 0.95]], False),
-    }
     FLAG_W = 0.80
     FLAG_H = 0.50
 
     def __init__(self, ctx, renderer, position, country='INA', phase=0.0):
-        stripes, has_circle = self.FLAG_PRESETS.get(
-            country, ([[0.85, 0.10, 0.10], [0.95, 0.95, 0.95]], False))
-        n = len(stripes)
-        sh = self.FLAG_H / n
-        self._stripe_h = sh
-        self._n = n
-
-        self.stripe_vaos = []
-        for color in stripes:
-            v, i = make_box(self.FLAG_W, sh, 0.05, color)
-            vao, _ = renderer.make_vao(v, i)
-            self.stripe_vaos.append(vao)
-
-        # Lingkaran merah untuk JPN
-        self.vao_circle = None
-        if has_circle:
-            v, i = make_sphere(0.10, 5, 10, [0.85, 0.10, 0.10])
-            # Pipihkan di Z jadi lingkaran flat
-            v = v.copy(); v[:, 2] *= 0.15
-            self.vao_circle, _ = renderer.make_vao(v, i)
-
+        v, i = _flag_panel_mesh(country, self.FLAG_W, self.FLAG_H, 0.05)
+        self.vao_flag, _ = renderer.make_vao(v, i)
         self.renderer = renderer
         self.base_pos = np.array(position, dtype='f4')
         self._phase   = phase
@@ -483,17 +515,11 @@ class WallFlag:
         pos  = self.base_pos
         wave = np.sin(self._t * 2.0 + self._phase) * 0.08
 
-        # Stripe dari atas ke bawah
-        for idx, vao in enumerate(self.stripe_vaos):
-            y = pos[1] + (self._n - 1 - idx) * self._stripe_h + self._stripe_h / 2
-            m = (translate(pos[0], y, pos[2]) @ rot_y(wave)).astype('f4')
-            r.draw_vao(vao, m, vp)
-
-        # Lingkaran merah di tengah (JPN)
-        if self.vao_circle is not None:
-            cy = pos[1] + self.FLAG_H / 2
-            m  = (translate(pos[0], cy, pos[2] + 0.03) @ rot_y(wave)).astype('f4')
-            r.draw_vao(self.vao_circle, m, vp)
+        # base_pos dianggap sebagai pojok kiri-bawah bendera lama,
+        # jadi center panel dinaikkan setengah tinggi agar posisi tetap kompatibel.
+        m = (translate(pos[0], pos[1] + self.FLAG_H / 2, pos[2])
+             @ rot_y(wave)).astype('f4')
+        r.draw_vao(self.vao_flag, m, vp)
 
 
 # ── Stands (tribun bertingkat, lebih tinggi & jauh) ───────────────────────────
