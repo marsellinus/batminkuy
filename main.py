@@ -11,7 +11,7 @@ from objects.player import Player
 from objects.environment import Environment
 from objects.props import (Bench, Bottle, Bag, ShuttlecockBox, Spectator, Stands,
                            Umpire, SponsorBanner, LineUmpire, AudienceBanner, WallFlag,
-                           Towel, FloorLight, ScoreBoard)
+                           Towel, FloorLight, ScoreBoard, CHEER_FLAG_CODES)
 
 WIDTH, HEIGHT = 1280, 720
 FPS_TARGET    = 60
@@ -173,21 +173,32 @@ def main():
 
     audience_banners = []
 
-    # ── WallFlag — bendera di dinding belakang arena ─────────────────────────
-    # Dinding belakang di Z = ±13.5 (FLOOR_L/2 = 14)
-    # Spacing 1.5 unit, 6 bendera per dinding, centered
-    _FLAG_COUNTRIES = ['INA', 'MAS', 'CHN', 'JPN', 'KOR', 'INA']
+    # ── WallFlag — bendera di dinding belakang & samping arena ─────────────────
+    # Semua 9 negara dari CHEER_FLAG_CODES: INA, JPN, FRA, GER, ITA, NED, UKR, POL, NGA
     flags = []
-    N_FLAGS   = len(_FLAG_COUNTRIES)
-    SPACING_F = 1.8
-    START_X   = -(N_FLAGS - 1) * SPACING_F / 2
-    FLAG_Y    = 3.5   # ketinggian di dinding
-    for k, country in enumerate(_FLAG_COUNTRIES):
+    FLAG_Y    = 3.5        # ketinggian bendera di dinding
+
+    # --- Dinding belakang (Z = ±15.8), susunan 9 bendera horizontal ---
+    N_FLAGS   = len(CHEER_FLAG_CODES)
+    SPACING_F = 1.5                              # spacing lebih rapat agar 9 bendera muat
+    START_X   = -(N_FLAGS - 1) * SPACING_F / 2  # center di sumbu X
+    for k, country in enumerate(CHEER_FLAG_CODES):
         fx = START_X + k * SPACING_F
-        # Dinding belakang (Z = -13.5, menghadap ke dalam = +Z)
+        # Dinding belakang (Z = -15.8, menghadap ke dalam = +Z)
         flags.append(WallFlag(ctx, renderer, (fx, FLAG_Y, -15.8), country=country, phase=k * 0.6))
-        # Dinding depan (Z = +16, menghadap ke dalam = -Z)
+        # Dinding depan (Z = +15.8, menghadap ke dalam = -Z)
         flags.append(WallFlag(ctx, renderer, (fx, FLAG_Y,  15.8), country=country, phase=k * 0.9))
+
+    # --- Dinding samping kiri (X = -10) & kanan (X = +10), susunan Z ---
+    # Pakai 6 bendera di setiap dinding samping, pilih subset dari CHEER_FLAG_CODES
+    SIDE_COUNTRIES = CHEER_FLAG_CODES[:6]        # INA, JPN, FRA, GER, ITA, NED
+    N_SIDE   = len(SIDE_COUNTRIES)
+    SPACING_S = 2.0
+    START_Z   = -(N_SIDE - 1) * SPACING_S / 2
+    for k, country in enumerate(SIDE_COUNTRIES):
+        fz = START_Z + k * SPACING_S
+        flags.append(WallFlag(ctx, renderer, (-10.0, FLAG_Y, fz), country=country, phase=k * 0.5))
+        flags.append(WallFlag(ctx, renderer, ( 10.0, FLAG_Y, fz), country=country, phase=k * 0.7))
 
 
     clock       = pygame.time.Clock()
