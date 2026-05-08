@@ -18,29 +18,40 @@ def ease_out(t):
 
 
 # Hit phase timing — longer recover for natural follow-through
-PREPARE_END = 0.20
-HIT_END     = 0.35
-RECOVER_END = 0.85   # extended: arm follows through longer
+PREPARE_END = 0.28   # lebih lama agar prepare terasa penuh
+HIT_END     = 0.42
+RECOVER_END = 0.88
 
-# 3 swing types: (pitch_prepare, pitch_hit, pitch_recover, yaw_offset, body_rot_hit)
+# 3 swing types with distinct body and arm parameters
 SWING_TYPES = {
     'forehand': dict(
-        pitch_prepare=-0.35, pitch_hit=+0.65, pitch_recover=-0.20,
-        yaw_offset=+0.15,  body_prepare=-0.20, body_hit=+0.35,
+        pitch_prepare=-0.70, pitch_hit=+0.80, pitch_recover=-0.15,
+        yaw_offset=+0.30,   body_prepare=-0.35, body_hit=+0.35,
+        lean_prepare=-0.05, lean_hit=+0.15,
+        elbow_prepare=0.45, elbow_hit=0.05,
+        jump_prepare=0.0,   jump_hit=0.0,
     ),
     'smash': dict(
-        pitch_prepare=-0.70, pitch_hit=+0.90, pitch_recover=-0.30,
-        yaw_offset=+0.05,  body_prepare=-0.15, body_hit=+0.25,
+        # Smash pulls far back and swings fully downward.
+        pitch_prepare=-1.40, pitch_hit=+1.30, pitch_recover=-0.40,
+        yaw_offset=+0.15,   body_prepare=-0.50, body_hit=+0.60,
+        lean_prepare=-0.25, lean_hit=+0.45,
+        elbow_prepare=0.70, elbow_hit=0.00,
+        jump_prepare=0.4,   jump_hit=0.6,
     ),
     'backhand': dict(
-        pitch_prepare=+0.20, pitch_hit=-0.55, pitch_recover=+0.15,
-        yaw_offset=-0.40,  body_prepare=+0.15, body_hit=-0.30,
+        # Backhand turns the body backwards (positive body rot), arm crosses body.
+        pitch_prepare=+0.80, pitch_hit=-0.80, pitch_recover=+0.30,
+        yaw_offset=-0.90,   body_prepare=+0.75, body_hit=-0.30,
+        lean_prepare=+0.05, lean_hit=+0.15,
+        elbow_prepare=0.85, elbow_hit=0.05,
+        jump_prepare=0.0,   jump_hit=0.0,
     ),
 }
 
 
 class AnimationController:
-    HIT_DIST     = 1.8
+    HIT_DIST     = 2.2
     HIT_DURATION = 0.70
 
     def __init__(self):
@@ -48,15 +59,17 @@ class AnimationController:
         self._swing_type = ['forehand', 'forehand']
         self.cam_shake   = 0.0
         self.cam_zoom    = 0.0
+        self.hit_event   = False
 
     def update(self, dt, shuttlecock, player1, player2):
         players = [player1, player2]
 
         receiver_idx = 1 if shuttlecock._dir == 1 else 0
         receiver = players[receiver_idx]
-        dist = float(np.linalg.norm(shuttlecock.position - receiver.position))
+        diff_xz = shuttlecock.position[[0, 2]] - receiver.position[[0, 2]]
+        dist = float(np.linalg.norm(diff_xz))
 
-        if shuttlecock._waiting and dist < self.HIT_DIST and self._hit_timer[receiver_idx] <= 0.0:
+        if (shuttlecock._t > 0.60) and dist < self.HIT_DIST and self._hit_timer[receiver_idx] <= 0.0:
             self._hit_timer[receiver_idx] = self.HIT_DURATION
             self._swing_type[receiver_idx] = random.choice(list(SWING_TYPES.keys()))
             receiver.hit_state  = 'prepare'
@@ -69,7 +82,7 @@ class AnimationController:
             shuttlecock.launch(receiver.position[0], landing_x)
 
             other = players[1 - receiver_idx]
-            other.set_target(landing_x, shuttlecock.landing_z() * 0.80)
+            other.set_target(landing_x, shuttlecock.landing_z())
 
         for i, player in enumerate(players):
             if self._hit_timer[i] > 0.0:
@@ -79,14 +92,15 @@ class AnimationController:
                 if raw_t < PREPARE_END:
                     player.hit_state = 'prepare'
                     phase_t = raw_t / PREPARE_END
-                    blend = smoothstep(phase_t) * 0.5
+                    blend = smoothstep(phase_t)
                 elif raw_t < HIT_END:
                     player.hit_state = 'hit'
                     phase_t = (raw_t - PREPARE_END) / (HIT_END - PREPARE_END)
-                    blend = 0.5 + smoothstep(phase_t) * 0.5
+                    blend = smoothstep(phase_t)
                     if phase_t < dt / (HIT_END - PREPARE_END) + 0.05:
                         self.cam_shake = 0.04
                         self.cam_zoom  = 3.0
+                        self.hit_event = True
                 else:
                     player.hit_state = 'recover'
                     phase_t = (raw_t - HIT_END) / (RECOVER_END - HIT_END)

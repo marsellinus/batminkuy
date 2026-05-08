@@ -33,7 +33,7 @@ SHOE       = [0.12, 0.12, 0.12]
 SHADOW     = [0.0,  0.0,  0.0]
 DEBUG_DOT  = [1.0,  1.0,  0.0]
 FACE_BLACK = [0.05, 0.05, 0.05]
-FACE_RED   = [0.8,  0.2,  0.2]
+FACE_RED   = [0.75, 0.45, 0.40]
 BROW_COLOR = [0.35, 0.22, 0.10]
 
 KITS = [
@@ -41,7 +41,7 @@ KITS = [
     {'shirt': [0.85, 0.18, 0.18], 'shorts': [0.55, 0.08, 0.08], 'sock': [0.88, 0.88, 0.88]},
 ]
 
-SMOOTH = 12.0
+SMOOTH = 18.0
 
 
 class Player:
@@ -50,6 +50,7 @@ class Player:
 
     def __init__(self, ctx, renderer, position, facing=1.0):
         self.position     = np.array(position, dtype='f4')
+        self.position[1]  = 0.175  # Set height to floor level (0.175 offset for feet)
         self.facing       = facing
         self.renderer     = renderer
         self._t           = 0.0
@@ -88,11 +89,12 @@ class Player:
         self._s_body_rot    = 0.0
         self._s_body_lean   = 0.0   # forward lean saat hit
         self._s_racket_lag  = 0.0
+        self._s_jump        = 0.0   # Untuk loncatan smash
 
         self.state       = 'idle'
         self.swing_type  = 'forehand'
         self._target_pos = self.position.copy()
-        self.SPEED       = 3.5
+        self.SPEED       = 6.0
         self._shuttle    = None
 
     def set_face_state(self, state, duration=1.2):
@@ -121,7 +123,11 @@ class Player:
 
     def update(self, dt):
         self._t += dt
-        k = min(SMOOTH * dt, 1.0)
+        
+        # Helper for framerate-independent smooth approach
+        def approach(curr, target, mult):
+            alpha = 1.0 - np.exp(-SMOOTH * mult * dt)
+            return curr + (target - curr) * alpha
 
         # Auto-reset face_state ke neutral
         if self._face_timer > 0.0:
@@ -133,12 +139,14 @@ class Player:
             to_target = self._target_pos - self.position
             to_target[1] = 0
             dist_to_target = np.linalg.norm(to_target)
-            if dist_to_target > 0.08:
-                self.position += (to_target / dist_to_target) * self.SPEED * dt
-            else:
+            step = min(self.SPEED * dt, dist_to_target)
+            if dist_to_target > 0.01:
+                self.position += (to_target / dist_to_target) * step
+            
+            if dist_to_target <= step:
                 self.position[:] = self._target_pos
                 self.state = 'idle'
-            self.position[1] = 0.025
+            self.position[1] = 0.175
 
         hb = self._hit_blend
         fa = 0.0 if self.facing > 0 else np.pi
@@ -146,29 +154,39 @@ class Player:
         sw = SWING_TYPES.get(self.swing_type, SWING_TYPES['forehand'])
         if self.hit_state == 'prepare':
             state_pitch_offset = sw['pitch_prepare']
-            target_body_rot    = sw['body_prepare'] * self.facing
-            target_body_lean   = -0.08   # sedikit condong ke belakang saat prepare
-            target_racket_lag  = +0.30   # racket tertinggal saat prepare
+            target_body_rot    = sw.get('body_prepare', 0.0) * self.facing
+            target_body_lean   = sw.get('lean_prepare', -0.12)
+            target_racket_lag  = +0.30
+            state_elbow        = sw.get('elbow_prepare', 0.25)
+            target_jump        = sw.get('jump_prepare', 0.0)
         elif self.hit_state == 'hit':
             state_pitch_offset = sw['pitch_hit']
-            target_body_rot    = sw['body_hit'] * self.facing
-            target_body_lean   = +0.18   # condong ke depan saat hit
+            target_body_rot    = sw.get('body_hit', 0.0) * self.facing
+            target_body_lean   = sw.get('lean_hit', +0.28)
             target_racket_lag  = -0.20   # racket memimpin saat hit
+            state_elbow        = sw.get('elbow_hit', 0.05)
+            target_jump        = sw.get('jump_hit', 0.0)
         elif self.hit_state == 'recover':
             state_pitch_offset = sw['pitch_recover']
-            target_body_rot    = sw['body_prepare'] * self.facing * 0.5
-            target_body_lean   = +0.06   # masih sedikit condong
+            target_body_rot    = sw.get('body_prepare', 0.0) * self.facing * 0.5
+            target_body_lean   = sw.get('lean_hit', +0.28) * 0.2  # sedikit sisa condong
             target_racket_lag  = +0.12   # follow-through: racket masih di depan
+            state_elbow        = 0.20
+            target_jump        = 0.0
         else:
             state_pitch_offset = 0.0
             target_body_rot    = 0.0
             target_body_lean   = 0.0
             target_racket_lag  = 0.0
+            state_elbow        = None
+            target_jump        = 0.0
 
-        self._s_body_rot  += (target_body_rot  - self._s_body_rot)  * k * 1.5
-        self._s_body_lean += (target_body_lean - self._s_body_lean) * k * 1.8
+        self._s_body_rot  = approach(self._s_body_rot, target_body_rot, 1.5)
+        self._s_body_lean = approach(self._s_body_lean, target_body_lean, 1.8)
         # Racket lag: slower to follow = more natural delay
-        self._s_racket_lag += (target_racket_lag - self._s_racket_lag) * k * 1.2
+        self._s_racket_lag = approach(self._s_racket_lag, target_racket_lag, 1.2)
+        # Jump smoothing
+        self._s_jump = approach(self._s_jump, target_jump, 2.0)
 
         p = self.position
         root_approx = (translate(p[0], p[1], p[2])
@@ -184,30 +202,45 @@ class Player:
         target_yaw   = float(np.arctan2(d[0], d[2]))
         target_pitch = float(-np.arctan2(d[1], np.linalg.norm(d[[0,2]]) + 1e-6))
         target_yaw   = np.clip(target_yaw,   -0.6,  0.6)
-        target_pitch = np.clip(target_pitch, -1.3,  0.3)
+        target_pitch = np.clip(target_pitch, -0.8,  0.3)
 
-        target_pitch += state_pitch_offset * hb
-        target_yaw   += sw['yaw_offset'] * hb
+        # Saat hit aktif: lerp dari aiming ke pose swing type secara penuh
+        swing_pitch = state_pitch_offset          # nilai khas tiap swing type
+        swing_yaw   = sw['yaw_offset']
+        target_pitch = lerp(target_pitch, swing_pitch, hb)
+        target_yaw   = lerp(target_yaw,   swing_yaw,   hb)
 
         target_elbow = lerp(0.70, 0.15, np.clip(dist / 2.5, 0.0, 1.0))
-        target_elbow = lerp(target_elbow, 0.05, hb)
+        if state_elbow is not None:
+            target_elbow = lerp(target_elbow, state_elbow, hb)
+        else:
+            target_elbow = lerp(target_elbow, 0.05, hb)
 
         head_origin = p + np.array([0, 1.85, 0], dtype='f4')
         dh = aim_pos - head_origin
-        target_hy = float(np.arctan2(dh[0], dh[2])) * 0.35
-        target_hp = float(np.arctan2(dh[1], np.linalg.norm(dh[[0,2]]) + 1e-6)) * 0.30
+        # Kepala menghadap ke arah musuh (Z berlawanan facing), sedikit tracking shuttlecock X
+        opponent_z = head_origin[2] + self.facing * 5.0
+        look_x = dh[0] * 0.25
+        look_z = opponent_z - head_origin[2]
+        body_angle = fa + self._s_body_rot
+        # Konversi ke ruang lokal body
+        local_x =  look_x * np.cos(-body_angle) + look_z * np.sin(-body_angle)
+        local_z = -look_x * np.sin(-body_angle) + look_z * np.cos(-body_angle)
+        target_hy = float(np.arctan2(local_x, local_z)) * 0.7
+        target_hp = float(np.arctan2(dh[1], abs(look_z) + 1e-6)) * 0.25
 
-        idle_pitch = -np.sin(self._t * 2.4) * 0.12 - 0.20
-        self._s_ra_yaw   += (lerp(0.0,        target_yaw,   hb) - self._s_ra_yaw)   * k * 1.5
-        self._s_ra_pitch += (lerp(idle_pitch, target_pitch, hb) - self._s_ra_pitch) * k * 1.5
-        self._s_elbow    += (lerp(0.25,       target_elbow, hb) - self._s_elbow)    * k * 2.0
-        self._s_head_yaw += (target_hy - self._s_head_yaw) * k * 1.3
-        self._s_head_pit += (target_hp - self._s_head_pit) * k * 1.3
+        idle_pitch = np.sin(self._t * 2.4) * 0.08 - 0.10
+        self._s_ra_yaw   = approach(self._s_ra_yaw,   lerp(0.0,        target_yaw,   hb), 2.5)
+        self._s_ra_pitch = approach(self._s_ra_pitch, lerp(idle_pitch, target_pitch, hb), 2.5)
+        self._s_elbow    = approach(self._s_elbow,    lerp(0.25,       target_elbow, hb), 3.0)
+        self._s_head_yaw = approach(self._s_head_yaw, target_hy, 1.3)
+        self._s_head_pit = approach(self._s_head_pit, target_hp, 1.3)
 
     @staticmethod
     def _arm(root, sh_x, sh_y, yaw, pitch, elbow_z):
         shoulder = root @ translate(sh_x, sh_y, 0)
-        uarm_m   = shoulder @ rot_y(yaw) @ rot_z(pitch)
+        # rot_z(0.35) = lengan keluar dari badan secara default
+        uarm_m   = shoulder @ rot_y(yaw) @ rot_z(pitch + 0.35)
         elbow    = uarm_m   @ translate(0, -UARM_H / 2, 0)
         larm_m   = elbow    @ rot_z(elbow_z) @ translate(0, -LARM_H / 2, 0)
         hand_tip = larm_m   @ translate(0, -LARM_H / 2, 0)
@@ -281,12 +314,15 @@ class Player:
         leg_amp   = 0.35 if self.state == 'move' else 0.18
         leg   = np.sin(t * leg_speed) * leg_amp
 
-        root = (translate(p[0], p[1] + bob, p[2])
+        root = (translate(p[0], p[1] + bob + self._s_jump, p[2])
                 @ rot_y(fa + self._s_body_rot)
                 @ rot_x(-0.07 + sway + self._s_body_lean))
 
         # Shadow
-        r.draw_vao(self.vao_shadow, translate(p[0], 0.02, p[2]).astype('f4'), vp, alpha=0.28)
+        shadow_scale = 1.0 / (1.0 + self._s_jump * 2.0)
+        shadow_alpha = 0.28 * max(0.2, 1.0 - self._s_jump)
+        shadow_mat = translate(p[0], 0.02, p[2]) @ scale_mat(shadow_scale, 1.0, shadow_scale)
+        r.draw_vao(self.vao_shadow, shadow_mat.astype('f4'), vp, alpha=shadow_alpha)
 
         # Body
         body = root @ translate(0, BODY_Y, 0)

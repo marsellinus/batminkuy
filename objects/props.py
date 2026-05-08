@@ -267,7 +267,7 @@ class Spectator:
     def draw(self, vp):
         r   = self.renderer
         t   = self._t
-        bob = np.sin(t * 1.8 + self._phase) * 0.02
+        bob = np.sin(t * 1.8 + self._phase) * 0.05
 
         if self._react > 0.0:
             frac       = self._react / 0.8
@@ -275,9 +275,9 @@ class Spectator:
             clap_angle = np.sin(t * 14.0) * 0.55
         else:
             react_y    = 0.0
-            clap_angle = np.sin(t * 2.2 + self._phase) * 0.18
+            clap_angle = np.sin(t * 3.5 + self._phase) * 0.45
 
-        head_rot = np.sin(t * 0.5 + self._head_phase) * 0.2
+        head_rot = np.sin(t * 0.8 + self._head_phase) * 0.35
 
         # pos dengan bob+react untuk badan
         pos = self.base_pos.copy()

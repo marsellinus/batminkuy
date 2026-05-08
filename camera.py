@@ -69,8 +69,9 @@ class Camera:
         return np.array([np.cos(pr)*np.cos(yr), np.sin(pr), np.cos(pr)*np.sin(yr)], dtype='f4')
 
     def update(self, dt, keys, mx, my, shuttle_pos, shake=0.0):
-        k = min(6.0 * dt, 1.0)
-
+        def approach(curr, target, rate):
+            alpha = 1.0 - np.exp(-6.0 * rate * dt)
+            return curr + (target - curr) * alpha
         if self.mode == 'free':
             self.yaw  += mx * self.SENSITIVITY
             self.pitch = np.clip(self.pitch - my * self.SENSITIVITY, -89.0, 89.0)
@@ -92,8 +93,8 @@ class Camera:
             want_pos = shuttle_pos + offset
             # Clamp Y agar tidak turun ke bawah lantai
             want_pos[1] = max(want_pos[1], 2.5)
-            self._smooth_pos    += (want_pos    - self._smooth_pos)    * k
-            self._smooth_target += (shuttle_pos - self._smooth_target) * k * 1.5
+            self._smooth_pos    = approach(self._smooth_pos, want_pos, 1.0)
+            self._smooth_target = approach(self._smooth_target, shuttle_pos, 1.5)
 
         elif self.mode == 'side':
             # Tampak samping penuh — di luar tribun
@@ -106,9 +107,8 @@ class Camera:
             bz = float(shuttle_pos[2]) * 0.15 + 14.0
             by = 8.0
             want_pos = np.array([bx, by, bz], dtype='f4')
-            self._smooth_pos    += (want_pos - self._smooth_pos) * k * 0.5
-            self._smooth_target += (np.array([0.0, 1.2, 0.0], dtype='f4')
-                                    - self._smooth_target) * k
+            self._smooth_pos    = approach(self._smooth_pos, want_pos, 0.5)
+            self._smooth_target = approach(self._smooth_target, np.array([0.0, 1.2, 0.0], dtype='f4'), 1.0)
 
         if shake > 0.001:
             self._smooth_pos += np.array([

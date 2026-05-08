@@ -194,7 +194,6 @@ def main():
     slow_motion = False
     dbg_timer   = 0.0
     running     = True
-    _prev_shake = 0.0   # detect rising edge of cam_shake to trigger spectators
 
     print("[Badminton 3D]  WASD=move  Mouse=look  C=cam-mode  SPACE=slowmo  P=cam-info  ESC=quit")
 
@@ -227,23 +226,23 @@ def main():
         player1.update(dt)
         player2.update(dt)
 
-        # ── Trigger spectator hit reaction on rising edge of cam_shake ────────
-        if anim.cam_shake > 0.01 and _prev_shake <= 0.01:
+        # ── Trigger spectator hit reaction ────────────────────────────────────
+        if anim.hit_event:
             for s in spectators:
                 s.trigger_hit()
             umpire.trigger_hit()
             for lu in line_umpires:
                 lu.trigger_hit()
-        _prev_shake = anim.cam_shake
+            anim.hit_event = False
 
         for s in spectators:
-            s.update(dt)
-        umpire.update(dt)
+            s.update(dt_raw)
+        umpire.update(dt_raw)
         for lu in line_umpires:
-            lu.update(dt)
+            lu.update(dt_raw)
 
-        for b in audience_banners: b.update(dt)
-        for f in flags:            f.update(dt)
+        for b in audience_banners: b.update(dt_raw)
+        for f in flags:            f.update(dt_raw)
 
         # ── Camera zoom: reduce FOV temporarily on hit ────────────────────────
         if anim.cam_zoom > 0.0:
